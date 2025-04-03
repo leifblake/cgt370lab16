@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="utf-8" />
+    <title>RPDR Network Visualization</title>
+
+    <style>
+      @font-face {
+        font-family: 'Coolvetica';
+        src: url('fonts/coolvetica.ttf') format('truetype');
+
+      }
+
+      @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap');
+
+      body {
+        margin: 0;
+        background-color: #f4b4de;
+        font-family: 'Coolvetica', sans-serif;
+      }
+
+      .header {
+        background-color: #d68abc; 
+        color: #fedbf2;     
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 20px;
+      }
+      .header h1, .header h2 {
+        margin: 0;
+      }
+
+      .intro {
+        width: 90%;
+        margin: 20px auto;
+        color: #ffffff;
+        font-family: 'Coolvetica', sans-serif;
+        line-height: 1.5;
+        font-size: 20px;
+      }
+
+      .viz-container {
+        background-color: #ffffff;
+        width: 90%;
+        height: 600px; 
+        margin: 20px auto;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        position: relative;
+      }
+
+      .legend rect {
+        fill: #d68abc;  
+        stroke: #d68abc;
+        rx: 8;
+        ry: 8;
+      }
+      .legend text {
+        fill: #fedbf2;   
+        font-size: 14px;
+      }
+
+      .tooltip {
+        position: absolute;
+        pointer-events: none;
+        background: #ffffff;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        padding: 5px;
+        font-size: 12px;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>RuPaul’s Drag Race Network Visualization</h1>
+      <h2>Leif Blake | CGT 370 | Lab 16</h2>
+    </div>
+
+    <div class="intro">
+      <p>
+        Welcome to the RuPaul’s Drag Race Network Visualization. This interactive network displays the connections between contestants (queens) and the seasons of RuPaul’s Drag Race, including both the main series and All Stars seasons.
+      </p>
+      <p>
+        Each dot represents either a queen or a season. Queens are color-coded based on whether they appear only once or in multiple seasons, while season nodes are distinguished by the series they belong to. Red lines between a queen and their season indicate that they won that season. Hover over any node to see more details, including the specific seasons a queen appeared in or the season details.
+      </p>
+    </div>
+
+    <div class="viz-container" id="viz-container">
+      <div class="tooltip" id="tooltip"></div>
+
+      <script type="module">
+        import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+
+        const oneTimerQueenColor = "#1f77b4";      // Blue for one-timer queens
+        const multiSeasonQueenColor = "#ff7f0e";     // Orange for multi-season queens
+        const mainSeasonColor = "#2ca02c";           // Green for Main Series seasons
+        const allStarsSeasonColor = "#9467bd";       // Purple for All Stars seasons
+
+        fetch("rpdr_results.json")
+          .then(response => response.json())
+          .then(data => {
+            const nodesMap = {};
+            const links = [];
+
+            data.main_series.forEach(season => {
+              const seasonId = "Main-" + season.season;
+              nodesMap[seasonId] = {
+                id: seasonId,
+                group: "season",
+                series: "Main Series",
+                label: season.season
+              };
+              season.contestants.forEach(queen => {
+                if (!nodesMap[queen]) {
+                  nodesMap[queen] = { id: queen, group: "queen", seasons: [] };
+                }
+                nodesMap[queen].seasons.push(seasonId);
+
+                let isWinner = false;
+                if (Array.isArray(season.winner)) {
+                  isWinner = season.winner.includes(queen);
+                } else {
+                  isWinner = season.winner === queen;
+                }
+
+                links.push({
+                  source: queen,
+                  target: seasonId,
+                  winner: isWinner,
+                  series: "Main Series"
+                });
+              });
+            });
+
+            data.all_stars.forEach(season => {
+              const seasonId = "AllStars-" + season.season;
+              nodesMap[seasonId] = {
+                id: seasonId,
+                group: "season",
+                series: "All Stars",
+                label: season.season
+              };
+              season.contestants.forEach(queen => {
+                if (!nodesMap[queen]) {
+                  nodesMap[queen] = { id: queen, group: "queen", seasons: [] };
+                }
+                nodesMap[queen].seasons.push(seasonId);
+
+                let isWinner = false;
+                if (Array.isArray(season.winner)) {
+                  isWinner = season.winner.includes(queen);
+                } else {
+                  isWinner = season.winner === queen;
+                }
+
+                links.push({
+                  source: queen,
+                  target: seasonId,
+                  winner: isWinner,
+                  series: "All Stars"
+                });
+              });
+            });
+
+            const nodes = Object.values(nodesMap);
+            drawNetwork(nodes, links);
+          })
+          .catch(error => console.error("Error fetching data:", error));
+
+        function drawNetwork(nodesData, linksData) {
+          // Dimensions based on the .viz-container size
+          const container = d3.select("#viz-container");
+          const width = container.node().clientWidth;
+          const height = container.node().clientHeight;
+
+          const svg = container.append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+          // Create a group for the network so we can scale it down
+          const gNetwork = svg.append("g")
+            .attr("transform", `translate(${width / 2}, ${height / 2}) scale(0.55) translate(${-width / 2}, ${-height / 2})`);
+
+          const simulation = d3.forceSimulation(nodesData)
+            .force("link", d3.forceLink(linksData).id(d => d.id).distance(50))
+            .force("charge", d3.forceManyBody().strength(-40))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force("x", d3.forceX(width / 2).strength(0.02))
+            .force("y", d3.forceY(height / 2).strength(0.02))
+            .alphaDecay(0.005);
+
+          const link = gNetwork.selectAll("line")
+            .data(linksData)
+            .join("line")
+            .attr("stroke", d => d.winner ? "#f00" : "#ccc")
+            .attr("stroke-width", d => d.winner ? 2 : 1);
+
+          const node = gNetwork.selectAll("circle")
+            .data(nodesData)
+            .join("circle")
+            .attr("r", d => d.group === "queen" ? 5 : 8)
+            .attr("fill", d => {
+              if (d.group === "queen") {
+                return d.seasons.length > 1 ? multiSeasonQueenColor : oneTimerQueenColor;
+              } else if (d.group === "season") {
+                return d.series === "Main Series" ? mainSeasonColor : allStarsSeasonColor;
+              }
+              return "#000";
+            })
+            .call(drag(simulation));
+
+          const tooltip = d3.select("#tooltip");
+
+          node
+            .on("mouseover", (event, d) => {
+              tooltip.style("display", "block");
+
+              if (d.group === "queen") {
+                const multi = d.seasons.length > 1;
+                const label = multi ? "Multi-season Queen" : "One-time Queen";
+                tooltip.html(`
+                  <strong>${label}:</strong> ${d.id}<br/>
+                  <strong>Seasons:</strong> ${d.seasons.join(", ")}
+                `);
+              } else {
+                tooltip.html(`
+                  <strong>${d.series} Season:</strong> ${d.label}
+                `);
+              }
+            })
+            .on("mousemove", (event) => {
+              tooltip
+                .style("left", event.pageX + 2 + "px")
+                .style("top", event.pageY + 2 + "px");
+            })
+            .on("mouseout", () => {
+              tooltip.style("display", "none");
+            });
+
+          simulation.on("tick", () => {
+            link
+              .attr("x1", d => d.source.x)
+              .attr("y1", d => d.source.y)
+              .attr("x2", d => d.target.x)
+              .attr("y2", d => d.target.y);
+
+            node
+              .attr("cx", d => d.x)
+              .attr("cy", d => d.y);
+          });
+
+          // --- LEGEND ---
+          const legendData = [
+            { label: "One-timer Queen", color: oneTimerQueenColor },
+            { label: "Multi-season Queen", color: multiSeasonQueenColor },
+            { label: "Main Series Season", color: mainSeasonColor },
+            { label: "All Stars Season", color: allStarsSeasonColor }
+          ];
+
+          const legendWidth = 150;
+          const legendHeight = 120;
+          const legendMargin = 10; 
+
+          const legendGroup = svg.append("g")
+            .attr("class", "legend")
+            .attr("transform", `translate(${width - legendWidth - legendMargin}, ${legendMargin})`);
+
+          legendGroup.append("rect")
+            .attr("width", legendWidth)
+            .attr("height", legendHeight);
+
+          legendGroup.selectAll("g")
+            .data(legendData)
+            .join("g")
+            .attr("transform", (d, i) => `translate(10, ${i * 25 + 15})`)
+            .each(function(d) {
+              d3.select(this)
+                .append("circle")
+                .attr("r", 6)
+                .attr("fill", d.color);
+
+              d3.select(this)
+                .append("text")
+                .attr("x", 12)
+                .attr("y", 4)
+                .text(d.label);
+            });
+        }
+
+        function drag(simulation) {
+          function dragstarted(event) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            event.subject.fx = event.subject.x;
+            event.subject.fy = event.subject.y;
+          }
+          function dragged(event) {
+            event.subject.fx = event.x;
+            event.subject.fy = event.y;
+          }
+          function dragended(event) {
+            if (!event.active) simulation.alphaTarget(0);
+            event.subject.fx = null;
+            event.subject.fy = null;
+          }
+          return d3.drag()
+            .on("start", dragstarted)
+            .on("drag", dragged)
+            .on("end", dragended);
+        }
+      </script>
+    </div>
+  </body>
+</html>
